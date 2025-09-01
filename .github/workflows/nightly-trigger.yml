@@ -3,7 +3,10 @@ name: Nightly Trigger
 on:
   workflow_dispatch:
   schedule:
-    - cron:  '0 5 * * *'
+    - cron: '0 5 * * *'
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -15,18 +18,47 @@ jobs:
 
     steps:
 
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for all branches
 
-    - name: Tag
-      run: |
-        git branch -D nightly || true
-        git checkout -b nightly
-        git push origin nightly --force
+      - name: Tag
+        run: |
+          # Configure git user for commits
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email \
+            "github-actions[bot]@users.noreply.github.com"
 
-    - name: Invoke workflow
-      uses: input-output-hk/workflow-dispatch@v1
-      with:
-        workflow: .github/workflows/haskell.yml
-        ref: nightly
-        token: ${{ secrets.MACHINE_TOKEN }}
-        inputs: '{ "reason": "nightly", "tests": "all" }'
+          # Check if nightly branch exists locally and delete it
+          if git show-ref --verify --quiet refs/heads/nightly; then
+            echo "Local nightly branch exists, deleting it..."
+            git branch -D nightly
+          else
+            echo "Local nightly branch does not exist, continuing..."
+          fi
+
+          # Check if nightly branch exists remotely
+          if git show-ref --verify --quiet refs/remotes/origin/nightly; then
+            echo "Remote nightly branch exists"
+          else
+            echo "Remote nightly branch does not exist, it will be created"
+          fi
+
+          # Create and switch to nightly branch
+          git checkout -b nightly
+
+          # Attempt to push the branch with error handling
+          if git push origin nightly --force; then
+            echo "Successfully pushed nightly branch"
+          else
+            echo "Failed to push nightly branch, exit code: $?"
+            exit 1
+          fi
+
+      - name: Invoke workflow
+        uses: input-output-hk/workflow-dispatch@v1
+        with:
+          workflow: .github/workflows/haskell.yml
+          ref: nightly
+          token: ${{ secrets.MACHINE_TOKEN }}
+          inputs: '{ "reason": "nightly", "tests": "all" }'
